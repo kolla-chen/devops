@@ -180,10 +180,209 @@ eof
 # systemctl restart zabbix_server
 ```
 
-## 部署Zabbix Web界面
+## 5.部署Zabbix Web界面
 
 ```shell
 Zabbix前端使用PHP写的，所以必须运行在PHP支持的Web服务器上。
 # cp zabbix-4.0.0/frontends/php/* /usr/local/nginx/html/ -rf
+# vi /usr/local/php/etc/php.ini
+max_execution_time = 300
+memory_limit = 128M
+post_max_size = 16M
+upload_max_filesize = 2M
+max_input_time = 300
+always_populate_raw_post_data = -1
+date.timezone = Asia/Shanghai
+# systemctl restart php-fpm  
+
+# cat > /usr/local/nginx/conf/conf.d/zabbix.conf <<eof
+server {
+    listen       8080;
+    server_name  localhost;
+
+    access_log  logs/zabbix.access.log  main;
+
+    location / {
+        root   html;
+        index  index.php index.html index.htm;
+    }
+
+    location ~ \.php$ {
+        root           html;
+        fastcgi_pass   127.0.0.1:9000;
+        fastcgi_index  index.php;
+        fastcgi_param  SCRIPT_FILENAME  $document_root$fastcgi_script_name;
+        include        fastcgi_params;
+    }
+}
+eof
+
+# systemctl restart nginx
+```
+
+Lb配置反向代理
+
+```shell
+~]$ more /etc/nginx/conf.d/zabbix.conf 
+upstream zabbix_servers_http {
+    least_conn;
+    server 172.16.1.81:8080 max_fails=3 fail_timeout=5s;
+}
+server {
+    listen     80;
+    server_name  zabbix.kolla.top;
+    location / {
+        proxy_pass http://zabbix_servers_http;
+        proxy_set_header Host       $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+
+```
+
+## 6.部署Zabbix Agent
+
+```
+# rpm -ivh http://repo.zabbix.com/zabbix/4.0/rhel/7/x86_64/zabbix-release-4.0-1.el7.noarch.rpm
+# yum install zabbix-agent
+# vi /etc/zabbix/zabbix_agentd.conf
+PidFile=/var/run/zabbix/zabbix_agentd.pid
+LogFile=/var/log/zabbix/zabbix_agentd.log
+DebugLevel=3
+Server=
+ListenPort=10050
+ListenIP=0.0.0.0
+ServerActive=
+Hostname=
+Include=/etc/zabbix/zabbix_agentd.d/*.conf
+# UserParameter=
+```
+
+### 监控告警流程
+
+![image-20210108131125464](./images/image-20210108131125464.png)
+
+## 动作action
+
+```
+根据支持的事件源定义操作：
+* 触发事件 - 当trigger的状态从OK 转到 PROBLEM 或者转回时
+* 发现事件 - 发生网络发现时
+* 自动注册事件 - 当新的活动代理自动注册
+* 内部事件 - 当项目不受支持或触发器进入未知状态
+```
+
+告警模版
+
+```
+告警主机:{HOSTNAME1}
+告警时间:{EVENT.DATE} {EVENT.TIME}
+告警等级:{TRIGGER.SEVERITY}
+告警信息:{TRIGGER.NAME}
+告警项目:{TRIGGER.KEY1}
+问题详情:{ITEM.NAME}:{ITEM.VALUE}
+当前状态:{TRIGGER.STATUS}:{ITEM.VALUE1}
+事件ID:{EVENT.ID}
+```
+
+自定义脚本告警
+
+![image-20210108160200618](images/image-20210108160200618.png)
+
+```
+# yum install mailx  dos2unix
+# vi /etc/mail.rc     #添加邮件信息
+set from=chenzongzheng163@163.com smtp=smtp.163.com
+set smtp-auth-user=chenzongzheng163@163.com smtp-auth-password=xxxxx
+set smtp-auth=login
+
+
+# echo "this is test mail." |mail -s "test mail" chenzongzheng163@163.com
+
+告警脚本：
+# cat /usr/local/zabbix/share/zabbix/alertscripts/sendmail.sh
+#!/bin/bash
+to=$1
+subject=$2
+body=$3
+FILE=/tmp/mail.tmp
+echo "$body" > $FILE
+dos2unix -k $FILE     # 解决正文变成附件.bin
+mail -s "$subject" "$to" < $FILE
+
+# touch /tmp/mail.tmp
+# chown zabbix.zabbix /tmp/mail.tmp
+```
+
+![image-20210111111851592](images/image-20210111111851592.png)
+
+![image-20210111112051016](images/image-20210111112051016.png)
+
+
+
+### dingding告警
+
+```
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+import requests
+import json
+import sys
+import os
+import time
+import hmac
+import hashlib
+import base64
+import urllib
+
+timestamp = long(round(time.time() * 1000))
+secret = 'SEC60082d203bbfa65e9c512c8a07a0e08dcc4e46cd06b8ffb3f16836e246edabc7'
+secret_enc = bytes(secret).encode('utf-8')
+string_to_sign = '{}\n{}'.format(timestamp, secret)
+string_to_sign_enc = bytes(string_to_sign).encode('utf-8')
+hmac_code = hmac.new(secret_enc, string_to_sign_enc, digestmod=hashlib.sha256).digest()
+sign = urllib.quote_plus(base64.b64encode(hmac_code))
+#print(timestamp)
+#print(sign)
+
+
+headers = {'Content-Type': 'application/json;charset=utf-8'}
+api_url = "https://oapi.dingtalk.com/robot/send?access_token=16a2dc6865f28879801477716abd8dad89f5b350502cdd5f526d670ea5d15dab&timestamp={timestamp}&sign={sign}".format(timestamp=timestamp,sign=sign)
+  
+def msg(text):
+    json_text= {
+     "msgtype": "text",
+     "text": {
+         "content": text
+     },
+     "at": {
+         "atMobiles": [
+             "186..."
+         ], 
+         "isAtAll": False
+     }
+    }
+    print requests.post(api_url,json.dumps(json_text),headers=headers).content
+      
+if __name__ == '__main__':
+    text = sys.argv[1]
+    msg(text)
+
+```
+
+### 解决中文乱码
+
+```
+[root@dev-node-01 fonts]# pwd
+/usr/local/nginx/html/fonts
+[root@dev-node-01 fonts]# ls
+DejaVuSans.ttf      DejaVuSans.ttf.bak  simsun.ttc          
+[root@dev-node-01 fonts]# mv simsun.ttc DejaVuSans.ttf
+mv: overwrite ‘DejaVuSans.ttf’? y
+[root@dev-node-01 fonts]# ll
+total 18528
+-rw-r--r-- 1 root root 18214472 Jan 12 11:40 DejaVuSans.ttf
+-rw-r--r-- 1 root root   756072 Jan 12 11:36 DejaVuSans.ttf.bak
 ```
 

@@ -1,0 +1,5 @@
+[zabbix_server]
+172.16.1.81
+[zabbix_agent]
+172.16.1.[81:84]
+
