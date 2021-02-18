@@ -31,7 +31,7 @@ ipmi_addr=172.32.25.
 for ip in ${ipmi_addr}{1..20}
 do
  echo "########$ip#####"
- sshpass -p "R1plZWNkbkA3MzA=" ssh root@${ip} -o StrictHostKeyChecking=no   racadm getversion
+ sshpass -p "*****=" ssh root@${ip} -o StrictHostKeyChecking=no   racadm getversion
 done
 
 ```
