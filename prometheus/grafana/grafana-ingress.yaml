@@ -1,0 +1,13 @@
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: grafana
+  namespace: kube-system
+spec:
+  rules:
+  - host: grafana.kolla.top
+    http:
+      paths:
+      - backend:
+          serviceName: serviceName
+          servicePort: 3000

@@ -1,0 +1,59 @@
+global:
+  resolve_timeout: 5m
+  smtp_smarthost: smtp.163.com:25
+  smtp_from: chenzongzheng163@163.com
+  smtp_auth_username: chenzongzheng163@163.com
+  #smtp_auth_identity: chenzongzheng163@163.com
+  smtp_auth_password: AYQAKURVNFUVHDTA
+  smtp_require_tls: false
+  #smtp_hello: 163.com
+
+templates:
+  - '/etc/alertmanager/config/*.tmpl'
+route:
+  receiver: 'email'
+  group_wait: 30s
+  group_interval: 1m
+  repeat_interval: 1h
+  group_by: ['alertname']
+  routes:
+  - receiver: 'email'
+    match_re:
+      severity: 'warning|criticali'
+  - receiver: '165email'
+    match_re:
+      container: 'node-exporter'
+
+receivers:
+- name: email
+  email_configs:
+  - to: '1653668931@163.com'
+    send_resolved: true
+    headers:
+      From: k8s-prometheus@163.com
+      Subject: '[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .GroupLabels.SortedPairs.Values }}'
+    html: '{{ template "email.html" . }}'
+  - to: 'chenzongzheng163@163.com'
+    send_resolved: true
+    headers:
+      From: k8s-prometheus@163.com
+      Subject: '[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .GroupLabels.SortedPairs.Values }}'
+    html: '{{ template "email.html" . }}'
+
+- name: 165email
+  email_configs:
+  - to: 1653668931@qq.com
+    send_resolved: true
+    headers:
+      From: k8s-prometheus@163.com
+      Subject: '[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .GroupLabels.SortedPairs.Values }}'
+
+
+
+inhibit_rules:
+  - source_match:          
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['instance']
+

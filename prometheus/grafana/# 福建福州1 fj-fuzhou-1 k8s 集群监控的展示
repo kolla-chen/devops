@@ -1,0 +1,6 @@
+# 福建福州1 fj-fuzhou-1 k8s 集群监控的展示
+# 在本地做一下host解析 且要链接办公vpn
+110.85.55.253 fj-fuzhou-1-prometheus.outsight.ecf.plus fj-fuzhou-1-grafana.outsight.ecf.plus
+
+#账号密码
+admin/#Xh*kmH?[q28?:WK

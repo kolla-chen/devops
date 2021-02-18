@@ -1,0 +1,65 @@
+{{ define "email.html" }}
+
+<style type="text/css">
+table.gridtable {
+  font-family: verdana,arial,sans-serif;
+  font-size:11px;
+  color:#333333;
+  border-width: 1px;
+  border-color: #666666;
+  border-collapse: collapse;
+}
+table.gridtable th {
+  border-width: 1px;
+  padding: 8px;
+  border-style: solid;
+  border-color: #666666;
+  background-color: #dedede;
+}
+table.gridtable td {
+  border-width: 1px;
+  padding: 8px;
+  border-style: solid;
+  border-color: #666666;
+  background-color: #ffffff;
+}
+</style>
+
+<table class="gridtable">
+  <tr>
+    <th>报警项</th>
+    <th>实例</th>
+    <th>当前值</th>
+    <th>告警级别</th>
+    <th>告警摘要</th>
+    <th>开始时间</th>
+    {{ if gt (len .Alerts.Resolved) 0 }} 
+    <th>结束时间</th>
+    <th>持续时间</th>
+    {{ end }}
+  </tr>
+  {{ range $i, $alert := .Alerts.Firing }}
+    <tr>
+      <td>{{ index $alert.Labels "alertname" }}</td>
+      <td>{{ index $alert.Labels "obj" }}</td>
+      <td>{{ index $alert.Annotations "value" }}</td>
+      <td>{{ index $alert.Labels "severity" }}</td>
+      <td>{{ index $alert.Annotations "message" }}</td>
+      <td>{{ $alert.StartsAt.Format "2006-01-02 15:04:05 MST" }}</td>      
+    </tr>
+  {{ end }}
+  {{ range $i, $alert := .Alerts.Resolved }}
+    <tr>
+      <td>{{ index $alert.Labels "alertname" }}</td>
+      <td>{{ index $alert.Labels "obj" }}</td>
+      <td>{{ index $alert.Annotations "value" }}</td>
+      <td>{{ index $alert.Labels "severity" }}</td>
+      <td>{{ index $alert.Annotations "message" }}</td>
+      <td>{{ $alert.StartsAt.Format "2006-01-02 15:04:05 MST" }}</td>  
+      <td>{{ $alert.EndsAt.Format "2006-01-02 15:04:05 MST" }}</td>
+      <td>{{(.EndsAt.Sub .StartsAt).Truncate 1000000000}}</td>
+    </tr>
+  {{ end }}
+</table>
+{{ end }}
+

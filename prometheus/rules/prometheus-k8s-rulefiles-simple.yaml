@@ -1,0 +1,394 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  labels:
+    prometheus: k8s
+    role: alert-rules
+  name: prometheus-kube-state-rules
+  namespace: monitoring
+spec:
+  groups:
+  - name: kubernetes-apps
+    rules:
+    - alert: k8s集群Pod进程频繁重启
+      expr: rate(kube_pod_container_status_restarts_total{job="kube-state-metrics"}[5m]) * 60 * 5 > 0
+      for: 5m
+      labels:
+        severity: "critical"
+        obj: "{{ $labels.pod }}"
+        cluster: "fj-fuzhou-dev"
+      annotations:
+        value: "{{ $value }}"
+        summary: "{{ $labels.namespace }}/{{ $labels.pod }} ({{ $labels.container}})"
+        description: "k8s集群Pod {{ $labels.namespace }}/{{ $labels.pod }} ({{ $labels.container
+          }}) 正在频繁重启中"
+    - alert: k8s集群Pod启动状态异常
+      expr: sum by (namespace, pod) (max by(namespace, pod) (kube_pod_status_phase{job="kube-state-metrics", phase=~"Pending|Unknown"}) * on(namespace, pod) group_left(owner_kind) max by(namespace, pod, owner_kind) (kube_pod_owner{owner_kind!="Job"})) > 0
+      for: 5m
+      labels:
+        severity: "critical"
+        obj: "{{ $labels.pod }}"
+        cluster: "fj-fuzhou-dev"
+      annotations:
+        value: "{{ $value }}"
+        summary: "{{ $labels.namespace }}/{{ $labels.pod }} "
+        description: "k8s集群Pod {{ $labels.namespace }}/{{ $labels.pod }} 持续15分钟为non-ready状态"
+    - alert: k8s集群Pod处于waiting状态
+      expr: sum by (namespace, pod, container) (kube_pod_container_status_waiting_reason{job="kube-state-metrics"}) > 0
+      for: 5m
+      labels:
+        severity: "warning"
+        obj: "{{ $labels.pod }}"
+        cluster: "fj-fuzhou-dev"
+      annotations:
+        value: "{{ $value }}"
+        summary: "{{ $labels.namespace }}/{{ $labels.pod }} "
+        description: "k8s集群Pod {{ $labels.namespace }}/{{ $labels.pod }} container {{ $labels.container}} 持续15分钟为warning状态"
+    - alert: k8s集群deploy部署回滚失败
+      expr: kube_deployment_status_observed_generation{job="kube-state-metrics"} != kube_deployment_metadata_generation{job="kube-state-metrics"}
+      for: 5m
+      labels:
+        severity: "critical"
+        obj: "{{ $labels.deployment }}"
+        cluster: "fj-fuzhou-dev"
+      annotations:
+        value: "{{ $value }}"
+        summary: "{{ $labels.namespace }}/{{ $labels.deployment }} "
+        description: "k8s集群deploy {{ $labels.namespace }}/{{ $labels.deployment }} 部署失败但尚未成功被回滚。"
+    - alert: k8s集群deploy副本数不符合预期
+      expr: |
+        (
+          kube_deployment_spec_replicas{job="kube-state-metrics"}
+            !=
+          kube_deployment_status_replicas_available{job="kube-state-metrics"}
+        ) and (
+          changes(kube_deployment_status_replicas_updated{job="kube-state-metrics"}[5m])
+            ==
+          0
+        )
+      for: 5m
+      labels:
+        severity: "critical"
+        obj: "{{ $labels.deployment }}"
+        cluster: "fj-fuzhou-dev"
+      annotations:
+        value: "{{ $value }}"
+        summary: "{{ $labels.namespace }}/{{ $labels.deployment }} "
+        description: "k8s集群deploy {{ $labels.namespace }}/{{ $labels.deployment }} 不符合预期数量的副本。"      
+    - alert: k8s集群statefulset部署失败
+      expr: kube_statefulset_status_observed_generation{job="kube-state-metrics"} != kube_statefulset_metadata_generation{job="kube-state-metrics"}
+      for: 5m
+      labels:
+        severity: "critical"
+        obj: "{{ $labels.statefulset }}"
+        cluster: "fj-fuzhou-dev"
+      annotations:
+        value: "{{ $value }}"
+        summary: "{{ $labels.namespace }}/{{ $labels.statefulset }} "
+        description: "k8s集群statefulset {{ $labels.namespace }}/{{ $labels.statefulset }} 部署失败但尚未成功被回滚。"
+    - alert: k8s集群statefulset副本数不符合预期
+      expr: |
+        (
+          kube_statefulset_status_replicas_ready{job="kube-state-metrics"}
+            !=
+          kube_statefulset_status_replicas{job="kube-state-metrics"}
+        ) and (
+          changes(kube_statefulset_status_replicas_updated{job="kube-state-metrics"}[5m])
+            ==
+          0
+        )
+      for: 5m
+      labels:
+        severity: "critical"
+        obj: "{{ $labels.statefulset }}"
+        cluster: "fj-fuzhou-dev"
+      annotations:
+        value: "{{ $value }}"
+        summary: "{{ $labels.namespace }}/{{ $labels.statefulset }} "
+        description: "k8s集群deploy {{ $labels.namespace }}/{{ $labels.statefulset }} 不符合预期数量的副本。"  
+    - alert: k8s集群daemonset预期个数和就绪pod个数不符合
+      expr: |
+        kube_daemonset_status_number_ready{job="kube-state-metrics"}
+          /
+        kube_daemonset_status_desired_number_scheduled{job="kube-state-metrics"} < 1.00
+      for: 5m
+      labels:
+        severity: "warning"
+        obj: "{{ $labels.statefulset }}"
+        cluster: "fj-fuzhou-dev"
+      annotations:
+        value: "{{ $value }}"
+        summary: "{{ $labels.namespace }}/{{ $labels.daemonset }} "
+        description: "k8s集群daemonset {{ $labels.namespace }}/{{ $labels.daemonset }} 预期个数和就绪pod个数不符合。"  
+    - alert: k8s集群CronJob未及时完成
+      expr: time() - kube_cronjob_next_schedule_time{job="kube-state-metrics"} > 3600
+      for: 30m
+      labels:
+        severity: "warning"
+        obj: "{{ $labels.cronjob }}"
+        cluster: "fj-fuzhou-dev"
+      annotations:
+        value: "{{ $value }}"
+        summary: "{{ $labels.namespace }}/{{ $labels.cronjob }} "
+        description: "k8s集群CronJob {{ $labels.namespace }}/{{ $labels.cronjob }} 未及时完成"  
+    - alert: k8s集群Job未及时完成
+      expr: kube_job_spec_completions{job="kube-state-metrics"} - kube_job_status_succeeded{job="kube-state-metrics"}  > 0
+      for: 30m
+      labels:
+        severity: "warning"
+        obj: "{{ $labels.job_name }}"
+        cluster: "fj-fuzhou-dev"
+      annotations:
+        value: "{{ $value }}"
+        summary: "{{ $labels.namespace }}/{{ $labels.job_name }} "
+        description: "k8s集群Job {{ $labels.namespace }}/{{ $labels.job_name }} 未及时完成"        
+    - alert: k8s集群Job执行失败
+      expr: kube_job_failed{job="kube-state-metrics"}  > 0
+      for: 5m
+      labels:
+        severity: "warning"
+        obj: "{{ $labels.job_name }}"
+        cluster: "fj-fuzhou-dev"
+      annotations:
+        value: "{{ $value }}"
+        summary: "{{ $labels.namespace }}/{{ $labels.job_name }} "
+        description: "k8s集群Job {{ $labels.namespace }}/{{ $labels.job_name }} 执行失败"    
+ 
+  - name: kubernetes-resources
+    rules:
+    - alert: k8s集群Pod内存剩余率不足
+      expr: |
+        (sum by (name,pod,namespace,instance)(container_memory_rss{name=~".+",name!~".*POD.*"}) >0) /
+        (sum by (name,pod,namespace,instance)(container_spec_memory_limit_bytes{name=~".+",name!~".*POD.*"})>0) 
+        *100 > 90 
+      for: 5m
+      labels:
+        severity: "critical"
+        obj: "{{ $labels.pod }}"
+        cluster: "fj-fuzhou-dev"
+      annotations:
+        value: "{{ $value | humanizePercentage }}"
+        summary: "{{ $labels.instance }}/{{ $labels.namespace }} ({{ $labels.pod}})"
+        description: "k8s集群Pod {{ $labels.namespace }}/{{ $labels.pod }} 内存剩余率不足，请及时核实"
+
+    - alert: k8s集群内存过度使用
+      expr: |
+        sum(namespace:kube_pod_container_resource_requests_memory_bytes:sum) / sum(kube_node_status_allocatable_memory_bytes) > 
+        (count(kube_node_status_allocatable_memory_bytes)- 1) / count(kube_node_status_allocatable_memory_bytes)
+      for: 5m
+      labels:
+        severity: "critical"
+        obj: "内存已经过度使用无法容忍节点故障"
+        cluster: "fj-fuzhou-dev"
+      annotations:
+        value: "{{ $value }}"
+        summary: "内存已经过度使用无法容忍节点故障"
+        description: "内存已经过度使用无法容忍节点故障，节点资源使用的总量超过节点的内存总量，所以如果有节点故障将影响集群资源运行因为所需资源将无法被分配"
+
+    - alert: k8s集群Pod cpu 负载过高
+      expr: |
+        (sum(rate(container_cpu_usage_seconds_total{container!="",image!="",pod!=""}[1m])) by (name,namespace,instance)) /
+        (sum(container_spec_cpu_quota{container!="",image!="", pod!=""}) by(name,namespace,instance) / 100000)
+         * 100 > 90 
+      for: 5m
+      labels:
+        severity: "critical"
+        obj: "{{ $labels.pod }}"
+        cluster: "fj-fuzhou-dev"
+      annotations:
+        value: "{{ $value | humanizePercentage }}"
+        summary: "{{ $labels.instance }}/{{ $labels.namespace }} ({{ $labels.name}})"
+        description: "k8s集群Pod {{ $labels.namespace }}/{{ $labels.name }} cpu 负载过高，请及时核实"   
+    - alert: pod的CPU执行周期受到限制
+      expr: |
+        sum by(container, pod, namespace) (increase(container_cpu_cfs_throttled_periods_total{container!=""}[5m]))
+        / sum by(container, pod, namespace) (increase(container_cpu_cfs_periods_total[5m]))
+        > (27 / 100)
+      for: 3m
+      labels:
+        severity: warning
+        obj: "{{ $labels.pod }}"
+      annotations:
+        value: "{{ $value | humanizePercentage }}"
+        summary: '{{ $labels.namespace }}/{{ $labels.pod }} ({{ $labels.container }})'
+        description: '{{ $labels.namespace }}/{{ $labels.pod }} 容器{{ $labels.container }} CPU负载过高 {{ $value | humanizePercentage }} .'       
+
+  # kube-ovn Controller
+  - name: kubernetes-kube-ovn
+    rules:
+    - alert: 采集目标target Down
+      expr: count by(job, namespace, service, instance) (up == 0) 
+      for: 15m
+      labels:
+        severity: "warning"
+        obj: "{{ $labels.instance }}"
+        cluster: "fj-fuzhou-dev"
+      annotations:
+        value: "{{ $value }}个"
+        summary: "{{ $labels.namespace }}/{{ $labels.service }}"
+        description: "空间: {{ $labels.namespace }} 服务: {{ $labels.service }} instance:{{ $labels.instance }}采集目标服务down"
+
+    - alert: kube-ovn-controller 10m增删改操作频率
+      expr: sum(rate(workqueue_adds_total{job="kube-ovn-controller"}[10m])) by (instance, name,namespace,service) > 0.5
+      for: 15m
+      labels:
+        severity: "warning"
+        obj: "{{ $labels.name }}"
+        cluster: "fj-fuzhou-dev"
+      annotations:
+        value: "{{ $value }}"
+        summary: "空间: {{ $labels.namespace }} 服务: {{ $labels.service }} 动作: {{ $labels.name }}"
+        description: "空间: {{ $labels.namespace }} 服务: {{ $labels.service }} 动作: {{ $labels.name }} 操作过于频繁请核实"
+
+
+    - alert: kube-ovn-controller 10m 增删改动作重试次数
+      expr: sum(delta(workqueue_retries_total{job="kube-ovn-controller"}[10m])) by (instance, name,service,namespace) >20
+      for: 15m
+      labels:
+        severity: "warning"
+        obj: "{{ $labels.name }}"
+        cluster: "fj-fuzhou-dev"
+      annotations:
+        value: "{{ $value }}"
+        summary: "空间: {{ $labels.namespace }} 服务: {{ $labels.service }} 动作: {{ $labels.name }}"
+        description: "空间: {{ $labels.namespace }} 服务: {{ $labels.service }} 动作: {{ $labels.name }} 重试动作过多请核实"
+
+
+    - alert: kube-ovn-controller 工作队列延迟
+      expr: (sum(delta(workqueue_queue_duration_seconds_sum{}[10m])) by (instance,namespace,service))/(sum(delta(workqueue_queue_duration_seconds_count{}[10m])) by (instance,namespace,service)) >0.001
+      for: 15m
+      labels:
+        severity: "warning"
+        obj: "{{ $labels.service }}"
+        cluster: "fj-fuzhou-dev"
+      annotations:
+        value: "{{ $value }}"
+        summary: "空间: {{ $labels.namespace }} 服务: {{ $labels.service }} "
+        description: "空间: {{ $labels.namespace }} 服务: {{ $labels.service }} 延迟高请核实"
+
+    - alert: kube-ovn-controller api4xx,5xx错误率
+      expr: sum by(namespace,service,code)(rate(rest_client_requests_total{job="kube-ovn-controller",code=~"5..|4.."}[5m])) > 10
+      for: 15m
+      labels:
+        severity: "warning"
+        obj: "{{ $labels.service }}"
+        cluster: "fj-fuzhou-dev"
+      annotations:
+        value: "{{ $value }}"
+        summary: "空间: {{ $labels.namespace }} 服务: {{ $labels.service }} code: {{ $labels.code }}"
+        description: "空间: {{ $labels.namespace }} 服务: {{ $labels.service }} api4xx,5xx错误率高请核实"
+
+    - alert: kube-ovn-controller api4xx,5xx错误次数
+      expr: sum by(namespace,service,code)(rate(rest_client_requests_total{job="kube-ovn-controller",code=~"5..|4.."}[5m])) > 10
+      for: 15m
+      labels:
+        severity: "warning"
+        obj: "{{ $labels.code }}"
+        cluster: "fj-fuzhou-dev"
+      annotations:
+        value: "{{ $value }}"
+        summary: "空间: {{ $labels.namespace }} 服务: {{ $labels.service }} code: {{ $labels.code }}"
+        description: "空间: {{ $labels.namespace }} 服务: {{ $labels.service }} api4xx,5xx错误次数高请核实"
+
+    # kube-ovn-cni
+    - alert: kube-ovn-cni 动作4xx,5xx状态统计
+      expr: sum by (namespace,service, method, status_code)(increase(cni_op_latency_seconds_count{job="kube-ovn-cni",status_code=~"5..|4.." }[5m]))  > 10
+      for: 15m
+      labels:
+        severity: "warning"
+        obj: "{{ $labels.status_code }}"
+        cluster: "fj-fuzhou-dev"
+      annotations:
+        value: "{{ $value }}"
+        summary: "空间: {{ $labels.namespace }} 服务: {{ $labels.service }} status_code: {{ $labels.status_code }}"
+        description: "空间: {{ $labels.namespace }} 服务: {{ $labels.service }} 4xx,5xx错误次数高请核实"
+
+    # kube-ovn-ovsovn
+    - alert: kube-ovsovn pinger down
+      expr: pinger_ovs_down == 1
+      for: 15m
+      labels:
+        severity: "critical"
+        obj: "{{ $labels.nodeName }}"
+        cluster: "fj-fuzhou-dev"
+      annotations:
+        value: "{{ $value }}"
+        summary: "空间: {{ $labels.namespace }} 服务: {{ $labels.service }} nodeName: {{ $labels.nodeName }}"
+        description: "空间: {{ $labels.namespace }} 服务: {{ $labels.service }} 服务故障请核实"                
+
+    # kube-ovn-pinger
+    - alert: kube-ovn 内部dns健康
+      expr: pinger_internal_dns_healthy != 1
+      for: 15m
+      labels:
+        severity: "critical"
+        obj: "{{ $labels.nodeName }}"
+        cluster: "fj-fuzhou-dev"
+      annotations:
+        value: "{{ $value }}"
+        summary: "空间: {{ $labels.namespace }} 服务: {{ $labels.service }} nodeName: {{ $labels.nodeName }}"
+        description: "空间: {{ $labels.namespace }} 服务: {{ $labels.service }} 服务故障请核实"                
+
+    - alert: kube-ovn pinger apiserver 平均延迟ms
+      expr: (sum(delta(pinger_apiserver_latency_ms_sum[5m])) by (nodeName,namespace,service))/(sum(delta(pinger_apiserver_latency_ms_count[5m])) by (nodeName,namespace,service)) > 100
+      for: 15m
+      labels:
+        severity: "critical"
+        obj: "{{ $labels.nodeName }}"
+        cluster: "fj-fuzhou-dev"
+      annotations:
+        value: "{{ $value }}ms"
+        summary: "空间: {{ $labels.namespace }} 服务: {{ $labels.service }} nodeName: {{ $labels.nodeName }}"
+        description: "空间: {{ $labels.namespace }} 服务: {{ $labels.service }} apiserver延迟过高请核实"                
+
+    - alert: kube-ovn pinger dns 平均延迟ms
+      expr: (sum(delta(pinger_internal_dns_latency_ms_sum[5m])) by (nodeName,namespace,service))/(sum(delta(pinger_internal_dns_latency_ms_count[5m])) by (nodeName,namespace,service)) > 100
+      for: 15m
+      labels:
+        severity: "critical"
+        obj: "{{ $labels.nodeName }}"
+        cluster: "fj-fuzhou-dev"
+      annotations:
+        value: "{{ $value }}ms"
+        summary: "空间: {{ $labels.namespace }} 服务: {{ $labels.service }} nodeName: {{ $labels.nodeName }}"
+        description: "空间: {{ $labels.namespace }} 服务: {{ $labels.service }} dns延迟过高请核实"                
+
+# kube-ovn Controller
+  - name: kubernetes-kubevirt
+    rules:
+    - alert: kubevirt-VM CPU负载过高
+      expr: avg(rate(kubevirt_vmi_vcpu_seconds{}[5m])) by (domain, namespace,name,node) > 0.7
+      for: 15m
+      labels:
+        severity: "warning"
+        obj: "{{ $labels.name }}"
+        cluster: "fj-fuzhou-dev"
+      annotations:
+        value: "{{ $value | humanizePercentage }}"
+        summary: "空间: {{ $labels.namespace }} 虚拟机: {{ $labels.name }}"
+        description: "空间: {{ $labels.namespace }} 虚拟机: {{ $labels.name }} 虚拟机cpu负载过高请核实"
+
+    - alert: kubevirt-VM 内存使用率过高
+      expr: kubevirt_vmi_memory_resident_bytes/kubevirt_vmi_memory_available_bytes  > 0.7
+      for: 15m
+      labels:
+        severity: "warning"
+        obj: "{{ $labels.name }}"
+        cluster: "fj-fuzhou-dev"
+      annotations:
+        value: "{{ $value | humanizePercentage }}"
+        summary: "空间: {{ $labels.namespace }} 虚拟机: {{ $labels.name }}"
+        description: "空间: {{ $labels.namespace }} 虚拟机: {{ $labels.name }} 虚拟机cpu负载过高请核实"
+
+    - alert: kubevirt-VM 流量带宽Mb
+      expr: sum by(type,namespace,name,node)(irate(kubevirt_vmi_network_traffic_bytes_total[5m])*8)/(1024*1024) > 1024
+      for: 15m
+      labels:
+        severity: "warning"
+        obj: "{{ $labels.name }}"
+        cluster: "fj-fuzhou-dev"
+      annotations:
+        value: "{{ $value }}Mb/s"
+        summary: "空间: {{ $labels.namespace }} 虚拟机: {{ $labels.name }} 流量方向: {{ $labels.type }}"
+        description: "空间: {{ $labels.namespace }} 虚拟机: {{ $labels.name }} 流量带宽过高请核实"
+
